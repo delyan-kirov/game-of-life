@@ -95,9 +95,9 @@ print_state (void)
 
 typedef struct
 {
+  char *buf;
   size_t len;
   size_t capacity;
-  char *buf;
 } String;
 
 #define MiniStrMaxLen ((1 << 8) - 1)
@@ -108,10 +108,12 @@ typedef struct
   char buf[MiniStrMaxLen];
 } MiniStr;
 
+#define StrBldDefaultLen (32 * sizeof (MiniStr))
+
 // [size..][size..]...[size...]^******
 typedef struct StrBld
 {
-  MiniStr **buf;
+  char *buf;
   size_t len;
   size_t capacity;
 } StrBld;
@@ -120,33 +122,37 @@ void
 StrBld_new (StrBld *strBld)
 {
   strBld->len = 0;
-  strBld->capacity = 16;
-  strBld->buf = malloc(sizeof(MiniStr*)*(strBld->capacity));
+  strBld->capacity = StrBldDefaultLen;
+  strBld->buf = malloc (sizeof (MiniStr *) * (strBld->capacity));
+}
+
+void StrBld_reset(StrBld *strBld)
+{
+  strBld->len = 0;
+}
+
+void StrBld_free(StrBld *strBld)
+{
+  free(strBld->buf);
+  strBld->capacity = 0;
+  strBld->len = 0;
+  strBld = NULL;
 }
 
 void
-StrBld_add (StrBld *strBld, char *str)
+_StrBld_add (StrBld *strBld, char *str)
 {
   if (str == NULL) return;
 
-  MiniStr *miniStr
-      = malloc (sizeof (MiniStr)); 
-  miniStr->len = 0;
+  size_t str_len = strlen(str);
+  strBld->buf[strBld->len] = str_len;
+  memcpy(strBld->buf + strBld->len + 1, str, str_len);
 
-  for (size_t i = 0; str[i]; ++i)
-  {
-    miniStr->buf[i] = str[i];
-    miniStr->len += 1;
-  }
-
-    miniStr->buf[miniStr->len] = '\0';
-
-  strBld->buf[strBld->len] = miniStr;
-  strBld->len += 1;
+  strBld->len += sizeof (MiniStr);
 }
 
 void
-StrBld_add_many (StrBld *strBld, ...)
+StrBld_add (StrBld *strBld, ...)
 {
   va_list strs;
   char *str = NULL;
@@ -155,7 +161,7 @@ StrBld_add_many (StrBld *strBld, ...)
 
   while (NULL != (str = va_arg (strs, char *)))
   {
-    StrBld_add (strBld, str);
+    _StrBld_add (strBld, str);
   }
 
   va_end (strs);
@@ -168,24 +174,22 @@ StrBld_fuse (StrBld *strBld)
   String outStr = { 0 };
 
   // Calculate total length of all strings
-  for (size_t it = 0; it < strBld->len; ++it)
+  for (size_t it = 0; it < strBld->len; it += sizeof (MiniStr))
   {
-    printf ("%s\n", strBld->buf[it]->buf);
-    strLen += strBld->buf[it]->len;
+    strLen += strBld->buf[it];
   }
 
   outStr.capacity = strLen;
   outStr.len = 0;
-  outStr.buf = (char *)malloc (
+  outStr.buf = malloc (
       sizeof (char)
       * (strLen + 1)); // Allocate space for the string and null terminator
 
   // Concatenate strings
-  for (size_t it = 0; it < strBld->len; ++it)
+  for (size_t it = 0; it < strBld->len; it += sizeof (MiniStr))
   {
-    memcpy(outStr.buf + outStr.len, strBld->buf[it]->buf, strBld->buf[it]->len);
-    outStr.len += strBld->buf[it]->len;
-    free (strBld->buf[it]); // Free each MiniStr after it's used
+    memcpy (outStr.buf + outStr.len, strBld->buf + it + 1, strBld->buf[it]);
+    outStr.len += strBld->buf[it];
   }
 
   outStr.buf[outStr.len] = '\0'; // Null-terminate the result string
@@ -212,11 +216,10 @@ main (void)
   //   memcpy (WorldBuffer, NextWorldBuffer, sizeof (NextWorldBuffer));
   // }
 
-  StrBld strBld = {0};
-  StrBld_new(&strBld);
-  StrBld_add_many (&strBld, "Hello", " ", "World", "!\n", 0);
+  StrBld strBld = { 0 };
+  StrBld_new (&strBld);
+  StrBld_add (&strBld, "Hello", " ", "World", "!", "\n", '\0');
 
   String str = StrBld_fuse (&strBld);
-  printf("%s", str.buf);
-
+  printf ("%s", str.buf);
 }
